@@ -186,7 +186,6 @@ jobs:
       # 10. Install Expo packages
       # ==========================================
       - name: Install Expo packages
-        - name: Install Expo packages
   working-directory: source/LunarProxy-main/app
   run: |
     npx expo install \
