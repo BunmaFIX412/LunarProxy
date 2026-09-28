@@ -2,11 +2,60 @@ name: Build LunarProxy APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Test
-        run: echo "GitHub Actions is working"
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+
+      - name: Extract LunarProxy
+        run: |
+          mkdir -p source
+          unzip -o LunarProxy-main.zip -d source
+          find source -maxdepth 3 -type f | head -100
+
+      - name: Install npm dependencies
+        working-directory: source/LunarProxy-main/app
+        run: npm install
+
+      - name: Check Expo
+        working-directory: source/LunarProxy-main/app
+        run: npx expo --version
+
+      - name: Create Android project
+        working-directory: source/LunarProxy-main/app
+        run: npx expo prebuild --platform android
+
+      - name: Build APK
+        working-directory: source/LunarProxy-main/app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LunarProxy-debug
+          path: source/LunarProxy-main/app/android/app/build/outputs/apk/debug/*.apk
