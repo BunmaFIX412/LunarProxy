@@ -16,14 +16,14 @@ jobs:
       # 1. Checkout
       # ==========================================
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
 
       # ==========================================
       # 2. Java
       # ==========================================
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -33,18 +33,21 @@ jobs:
       # 3. Node.js
       # ==========================================
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "24"
+          package-manager-cache: false
 
 
       # ==========================================
-      # 4. Go
+      # 4. Environment
       # ==========================================
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.2"
+      - name: Setup environment
+        run: |
+          echo "NODE_ENV=production" >> "$GITHUB_ENV"
+          node --version
+          npm --version
+          java -version
 
 
       # ==========================================
@@ -71,21 +74,49 @@ jobs:
 
           npm pkg delete dependencies.expo-modules-core
 
-          npm pkg delete dependencies.expo-build-properties
-          npm pkg delete dependencies.expo-font
-          npm pkg delete dependencies.expo-localization
-          npm pkg delete dependencies.expo-notifications
-          npm pkg delete dependencies.expo-secure-store
-          npm pkg delete dependencies.expo-splash-screen
-          npm pkg delete dependencies.expo-tracking-transparency
-          npm pkg delete dependencies.expo-web-browser
-
           echo "===== PACKAGE.JSON ====="
           cat package.json
 
 
       # ==========================================
-      # 7. Disable Firebase Google Services
+      # 7. Fix Expo config
+      # ==========================================
+      - name: Fix Expo config
+        working-directory: source/LunarProxy-main/app
+        run: |
+          python3 <<'PY'
+          import json
+
+          path = "app.json"
+
+          with open(path, "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          # app.json should contain exactly one root-level expo object.
+          if isinstance(data.get("expo"), dict):
+              expo = data["expo"]
+
+              # Fix accidental nested expo object:
+              if isinstance(expo.get("expo"), dict):
+                  nested = expo.pop("expo")
+                  nested.update(expo)
+                  expo = nested
+
+              data["expo"] = expo
+
+          with open(path, "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=2)
+              f.write("\n")
+
+          print("Expo config normalized.")
+          PY
+
+          echo "===== APP.JSON ====="
+          cat app.json
+
+
+      # ==========================================
+      # 8. Disable Firebase Google Services
       # ==========================================
       - name: Disable Firebase Google Services
         working-directory: source/LunarProxy-main/app
@@ -93,7 +124,7 @@ jobs:
           if [ -f app.json ]; then
             cp app.json app.json.backup
 
-            python3 -c '
+            python3 <<'PY'
           import json
 
           path = "app.json"
@@ -138,17 +169,12 @@ jobs:
               f.write("\n")
 
           print("Firebase configuration disabled for this build.")
-          '
-
-            echo "===== UPDATED APP.JSON ====="
-            cat app.json
-          else
-            echo "app.json not found"
+          PY
           fi
 
 
       # ==========================================
-      # 8. Install dependencies
+      # 9. Install dependencies
       # ==========================================
       - name: Install dependencies
         working-directory: source/LunarProxy-main/app
@@ -157,7 +183,7 @@ jobs:
 
 
       # ==========================================
-      # 9. Install Expo packages
+      # 10. Install Expo packages
       # ==========================================
       - name: Install Expo packages
         working-directory: source/LunarProxy-main/app
@@ -175,7 +201,7 @@ jobs:
 
 
       # ==========================================
-      # 10. Fix Expo dependencies
+      # 11. Fix Expo dependencies
       # ==========================================
       - name: Fix Expo dependencies
         working-directory: source/LunarProxy-main/app
@@ -184,7 +210,7 @@ jobs:
 
 
       # ==========================================
-      # 11. Reinstall
+      # 12. Reinstall dependencies
       # ==========================================
       - name: Reinstall dependencies
         working-directory: source/LunarProxy-main/app
@@ -193,7 +219,7 @@ jobs:
 
 
       # ==========================================
-      # 12. Create missing icon assets
+      # 13. Create missing icon assets
       # ==========================================
       - name: Create missing app icons
         working-directory: source/LunarProxy-main/app
@@ -206,13 +232,12 @@ jobs:
           convert -size 512x512 xc:"#232323" assets/icon.png
           convert -size 512x512 xc:"#232323" assets/adaptive-icon.png
 
-          echo "===== ICON FILES ====="
           ls -lh assets/icon.png
           ls -lh assets/adaptive-icon.png
 
 
       # ==========================================
-      # 13. Expo Doctor
+      # 14. Expo Doctor
       # ==========================================
       - name: Expo Doctor
         working-directory: source/LunarProxy-main/app
@@ -222,16 +247,12 @@ jobs:
 
 
       # ==========================================
-      # 14. Check Expo
+      # 15. Check Expo
       # ==========================================
       - name: Check Expo
         working-directory: source/LunarProxy-main/app
         run: |
-          echo "===== EXPO ====="
           npx expo --version
-
-          echo ""
-          echo "===== PACKAGES ====="
 
           npm list \
             expo \
@@ -243,7 +264,7 @@ jobs:
 
 
       # ==========================================
-      # 15. Expo Prebuild
+      # 16. Expo Prebuild
       # ==========================================
       - name: Create Android project
         working-directory: source/LunarProxy-main/app
@@ -254,7 +275,7 @@ jobs:
 
 
       # ==========================================
-      # 16. Prepare Gradle
+      # 17. Prepare Gradle
       # ==========================================
       - name: Prepare Gradle
         working-directory: source/LunarProxy-main/app/android
@@ -263,18 +284,19 @@ jobs:
 
 
       # ==========================================
-      # 17. Build APK
+      # 18. Build APK
       # ==========================================
       - name: Build APK
         working-directory: source/LunarProxy-main/app/android
         run: |
           ./gradlew assembleDebug \
             --stacktrace \
+            --console=plain \
             --no-daemon
 
 
       # ==========================================
-      # 18. Find APK
+      # 19. Find APK
       # ==========================================
       - name: Find APK
         run: |
@@ -297,7 +319,7 @@ jobs:
 
 
       # ==========================================
-      # 19. Upload APK
+      # 20. Upload APK
       # ==========================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
