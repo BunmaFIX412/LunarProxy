@@ -6,213 +6,154 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build Android APK
+    runs-on: ubuntu-24.04
 
     steps:
 
-      # ==========================================
-      # 1. Checkout
-      # ==========================================
+      # =========================================================
+      # 1. CHECKOUT
+      # =========================================================
       - name: Checkout
         uses: actions/checkout@v5
 
-
-      # ==========================================
-      # 2. Java
-      # ==========================================
+      # =========================================================
+      # 2. JAVA
+      # =========================================================
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-
-      # ==========================================
-      # 3. Node.js
-      # ==========================================
+      # =========================================================
+      # 3. NODE
+      # =========================================================
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "24"
-          package-manager-cache: false
+          node-version: "20.19.x"
+          cache: npm
+          cache-dependency-path: source/LunarProxy-main/app/package-lock.json
 
-
-      # ==========================================
-      # 4. Environment
-      # ==========================================
-      - name: Setup environment
+      # =========================================================
+      # 4. NODE ENVIRONMENT
+      # =========================================================
+      - name: Configure environment
         run: |
           echo "NODE_ENV=production" >> "$GITHUB_ENV"
           node --version
           npm --version
           java -version
 
-
-      # ==========================================
-      # 5. Extract ZIP
-      # ==========================================
+      # =========================================================
+      # 5. EXTRACT PROJECT
+      # =========================================================
       - name: Extract LunarProxy
         run: |
           mkdir -p source
-          unzip -o LunarProxy-main.zip -d source
 
-          echo "===== PROJECT ====="
-          find source/LunarProxy-main -maxdepth 3 -type f | sort | head -200
+          if [ ! -f "LunarProxy-main.zip" ]; then
+            echo "ERROR: LunarProxy-main.zip not found"
+            echo "Files in repository:"
+            find . -maxdepth 3 -type f | sort | head -200
+            exit 1
+          fi
 
+          unzip -o "LunarProxy-main.zip" -d source
 
-      # ==========================================
-      # 6. Prepare Expo SDK 54
-      # ==========================================
-      - name: Prepare Expo SDK 54
+          echo ""
+          echo "========================================"
+          echo "PROJECT STRUCTURE"
+          echo "========================================"
+
+          find source/LunarProxy-main -maxdepth 3 -type f | sort | head -300
+
+      # =========================================================
+      # 6. CHECK APP
+      # =========================================================
+      - name: Check Expo project
         working-directory: source/LunarProxy-main/app
         run: |
+          echo "========================================"
+          echo "APP DIRECTORY"
+          echo "========================================"
+
+          pwd
+          ls -la
+
+          echo ""
+          echo "========================================"
+          echo "PACKAGE.JSON"
+          echo "========================================"
+
+          cat package.json
+
+          echo ""
+          echo "========================================"
+          echo "APP.JSON"
+          echo "========================================"
+
+          if [ -f app.json ]; then
+            cat app.json
+          else
+            echo "No app.json found"
+          fi
+
+      # =========================================================
+      # 7. FORCE EXPO SDK 54
+      # =========================================================
+      - name: Configure Expo SDK 54
+        working-directory: source/LunarProxy-main/app
+        run: |
+          echo "Configuring Expo SDK 54..."
+
           npm pkg set dependencies.expo="~54.0.0"
           npm pkg set dependencies.react="19.1.0"
           npm pkg set dependencies.react-native="0.81.5"
 
-          npm pkg delete dependencies.expo-modules-core
-
-          echo "===== PACKAGE.JSON ====="
-          cat package.json
-
-
-      # ==========================================
-      # 7. Fix Expo config
-      # ==========================================
-      - name: Fix Expo config
-        working-directory: source/LunarProxy-main/app
-        run: |
-          python3 <<'PY'
-          import json
-
-          path = "app.json"
-
-          with open(path, "r", encoding="utf-8") as f:
-              data = json.load(f)
-
-          # app.json should contain exactly one root-level expo object.
-          if isinstance(data.get("expo"), dict):
-              expo = data["expo"]
-
-              # Fix accidental nested expo object:
-              if isinstance(expo.get("expo"), dict):
-                  nested = expo.pop("expo")
-                  nested.update(expo)
-                  expo = nested
-
-              data["expo"] = expo
-
-          with open(path, "w", encoding="utf-8") as f:
-              json.dump(data, f, indent=2)
-              f.write("\n")
-
-          print("Expo config normalized.")
-          PY
-
-          echo "===== APP.JSON ====="
-          cat app.json
-
-
-      # ==========================================
-      # 8. Disable Firebase Google Services
-      # ==========================================
-      - name: Disable Firebase Google Services
-        working-directory: source/LunarProxy-main/app
-        run: |
-          if [ -f app.json ]; then
-            cp app.json app.json.backup
-
-            python3 <<'PY'
-          import json
-
-          path = "app.json"
-
-          with open(path, "r", encoding="utf-8") as f:
-              data = json.load(f)
-
-          expo = data.get("expo", {})
-
-          android = expo.get("android", {})
-
-          if isinstance(android, dict):
-              android.pop("googleServicesFile", None)
-              expo["android"] = android
-
-          plugins = expo.get("plugins", [])
-
-          if isinstance(plugins, list):
-              new_plugins = []
-
-              for plugin in plugins:
-                  if isinstance(plugin, list):
-                      name = plugin[0] if plugin else ""
-                  else:
-                      name = plugin
-
-                  if name in [
-                      "@react-native-firebase/app",
-                      "@react-native-firebase/crashlytics"
-                  ]:
-                      print("Removing Firebase plugin:", name)
-                      continue
-
-                  new_plugins.append(plugin)
-
-              expo["plugins"] = new_plugins
-
-          data["expo"] = expo
-
-          with open(path, "w", encoding="utf-8") as f:
-              json.dump(data, f, indent=2)
-              f.write("\n")
-
-          print("Firebase configuration disabled for this build.")
-          PY
-          fi
-
-
-      # ==========================================
-      # 9. Install dependencies
-      # ==========================================
-      - name: Install dependencies
-        working-directory: source/LunarProxy-main/app
-        run: |
-          npm install --legacy-peer-deps
-
-
-      # ==========================================
-      # 10. Install Expo packages
-      # ==========================================
-      - name: Install Expo packages
-  working-directory: source/LunarProxy-main/app
-  run: |
-    npx expo install \
-      expo-font \
-      expo-localization \
-      expo-notifications \
-      expo-secure-store \
-      expo-splash-screen \
-      expo-tracking-transparency \
-      expo-web-browser \
-      react-native-worklets
-
-      - name: Remove invalid Expo dependency
-        working-directory: source/LunarProxy-main/app
-        run: |
+          # Remove invalid/non-existent pinned version.
           npm pkg delete dependencies.expo-build-properties
           npm pkg delete devDependencies.expo-build-properties
 
-      - name: Install dependencies
+          echo ""
+          echo "Expo dependencies after configuration:"
+          npm pkg get dependencies.expo
+          npm pkg get dependencies.react
+          npm pkg get dependencies.react-native
+
+      # =========================================================
+      # 8. REMOVE OLD LOCKFILE
+      # =========================================================
+      - name: Reset dependency lock
+        working-directory: source/LunarProxy-main/app
+        run: |
+          rm -f package-lock.json
+
+          echo "Old package-lock.json removed."
+          echo "Expo will resolve dependencies again."
+
+      # =========================================================
+      # 9. INSTALL BASE DEPENDENCIES
+      # =========================================================
+      - name: Install base dependencies
         working-directory: source/LunarProxy-main/app
         run: |
           npm install --legacy-peer-deps
 
-      - name: Install Expo packages
+      # =========================================================
+      # 10. INSTALL EXPO BUILD PROPERTIES CORRECTLY
+      # =========================================================
+      - name: Install Expo compatible packages
         working-directory: source/LunarProxy-main/app
         run: |
           npx expo install \
+            expo-build-properties \
             expo-font \
             expo-localization \
             expo-notifications \
@@ -222,8 +163,251 @@ jobs:
             expo-web-browser \
             react-native-worklets
 
+      # =========================================================
+      # 11. FIX EXPO DEPENDENCIES
+      # =========================================================
       - name: Fix Expo dependencies
         working-directory: source/LunarProxy-main/app
         run: |
           npx expo install --fix
+
           npm install --legacy-peer-deps
+
+      # =========================================================
+      # 12. VERIFY DEPENDENCIES
+      # =========================================================
+      - name: Verify dependencies
+        working-directory: source/LunarProxy-main/app
+        run: |
+          echo "========================================"
+          echo "EXPO VERSION"
+          echo "========================================"
+
+          npx expo --version
+
+          echo ""
+          echo "========================================"
+          echo "INSTALLED PACKAGES"
+          echo "========================================"
+
+          npm list \
+            expo \
+            react \
+            react-native \
+            expo-build-properties \
+            expo-modules-core \
+            react-native-reanimated \
+            react-native-worklets \
+            --depth=0 || true
+
+      # =========================================================
+      # 13. DISABLE FIREBASE CONFIG PLUGINS
+      # =========================================================
+      - name: Disable Firebase config plugins
+        working-directory: source/LunarProxy-main/app
+        run: |
+          if [ -f app.json ]; then
+            cp app.json app.json.backup
+
+            python3 <<'PY'
+import json
+from pathlib import Path
+
+path = Path("app.json")
+
+try:
+    data = json.loads(path.read_text())
+
+    expo = data.get("expo")
+
+    if isinstance(expo, dict):
+        plugins = expo.get("plugins", [])
+
+        if isinstance(plugins, list):
+            new_plugins = []
+
+            for plugin in plugins:
+                name = plugin
+
+                if isinstance(plugin, list) and plugin:
+                    name = plugin[0]
+
+                if isinstance(name, str):
+                    if (
+                        "google-services" in name
+                        or "@react-native-firebase" in name
+                        or "firebase" == name
+                    ):
+                        print("Removing Firebase plugin:", name)
+                        continue
+
+                new_plugins.append(plugin)
+
+            expo["plugins"] = new_plugins
+            data["expo"] = expo
+
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    )
+
+    print("app.json processed successfully")
+
+except Exception as e:
+    print("Could not modify app.json:", e)
+    print("Keeping original configuration")
+PY
+
+          else
+            echo "app.json does not exist. Skipping Firebase plugin modification."
+          fi
+
+      # =========================================================
+      # 14. EXPO DOCTOR
+      # =========================================================
+      - name: Expo Doctor
+        working-directory: source/LunarProxy-main/app
+        continue-on-error: true
+        run: |
+          npx expo-doctor
+
+      # =========================================================
+      # 15. EXPO CONFIG CHECK
+      # =========================================================
+      - name: Check Expo config
+        working-directory: source/LunarProxy-main/app
+        run: |
+          echo "========================================"
+          echo "EXPO CONFIG"
+          echo "========================================"
+
+          npx expo config --type public
+
+      # =========================================================
+      # 16. CREATE ICONS IF MISSING
+      # =========================================================
+      - name: Create missing app icons
+        working-directory: source/LunarProxy-main/app
+        run: |
+          mkdir -p assets
+
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
+
+          if [ ! -f assets/icon.png ]; then
+            echo "Creating assets/icon.png"
+            convert \
+              -size 1024x1024 \
+              xc:"#232323" \
+              assets/icon.png
+          fi
+
+          if [ ! -f assets/adaptive-icon.png ]; then
+            echo "Creating assets/adaptive-icon.png"
+            convert \
+              -size 1024x1024 \
+              xc:"#232323" \
+              assets/adaptive-icon.png
+          fi
+
+          ls -lh assets/
+
+      # =========================================================
+      # 17. CREATE ANDROID PROJECT
+      # =========================================================
+      - name: Create Android project
+        working-directory: source/LunarProxy-main/app
+        run: |
+          rm -rf android
+
+          npx expo prebuild \
+            --platform android \
+            --clean \
+            --no-install
+
+      # =========================================================
+      # 18. CHECK ANDROID PROJECT
+      # =========================================================
+      - name: Check Android project
+        working-directory: source/LunarProxy-main/app
+        run: |
+          echo "========================================"
+          echo "ANDROID PROJECT"
+          echo "========================================"
+
+          test -d android
+          test -f android/gradlew
+
+          ls -la android
+
+          echo ""
+          echo "Gradle version:"
+          cd android
+          chmod +x gradlew
+          ./gradlew --version
+
+      # =========================================================
+      # 19. BUILD DEBUG APK
+      # =========================================================
+      - name: Build APK
+        working-directory: source/LunarProxy-main/app/android
+        run: |
+          chmod +x gradlew
+
+          ./gradlew assembleDebug \
+            --stacktrace \
+            --console=plain \
+            --no-daemon
+
+      # =========================================================
+      # 20. FIND APK
+      # =========================================================
+      - name: Find APK
+        working-directory: source/LunarProxy-main/app
+        run: |
+          echo "========================================"
+          echo "APK FILES"
+          echo "========================================"
+
+          find android \
+            -type f \
+            -name "*.apk" \
+            -print
+
+          echo ""
+
+          APK_COUNT=$(find android -type f -name "*.apk" | wc -l)
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "ERROR: No APK was produced."
+            exit 1
+          fi
+
+          echo "APK count: $APK_COUNT"
+
+      # =========================================================
+      # 21. COPY APK TO OUTPUT
+      # =========================================================
+      - name: Prepare APK artifact
+        working-directory: source/LunarProxy-main/app
+        run: |
+          mkdir -p output
+
+          APK=$(find android -type f -name "*.apk" | head -1)
+
+          echo "Using APK:"
+          echo "$APK"
+
+          cp "$APK" output/LunarProxy-debug.apk
+
+          ls -lh output/LunarProxy-debug.apk
+
+      # =========================================================
+      # 22. UPLOAD APK
+      # =========================================================
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LunarProxy-APK
+          path: source/LunarProxy-main/app/output/LunarProxy-debug.apk
+          if-no-files-found: error
+          retention-days: 14
