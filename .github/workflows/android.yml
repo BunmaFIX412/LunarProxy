@@ -36,9 +36,15 @@ jobs:
           unzip -o LunarProxy-main.zip -d source
           find source -maxdepth 3 -type f | head -100
 
-      - name: Install npm dependencies
-        working-directory: source/LunarProxy-main/app
-        run: npm install
+      - name: Fix Expo dependency
+  working-directory: source/LunarProxy-main/app
+  run: |
+    npm pkg delete dependencies.expo-build-properties
+    npm install expo-build-properties@latest --save
+
+- name: Install npm dependencies
+  working-directory: source/LunarProxy-main/app
+  run: npm install
 
       - name: Check Expo
         working-directory: source/LunarProxy-main/app
