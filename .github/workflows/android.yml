@@ -198,138 +198,32 @@ jobs:
       expo-web-browser \
       react-native-worklets
 
-- name: Fix Expo dependencies
-  working-directory: source/LunarProxy-main/app
-  run: |
-    npx expo install --fix
-    npm install --legacy-peer-deps
-
-
-      # ==========================================
-      # 11. Fix Expo dependencies
-      # ==========================================
-      - name: Fix Expo dependencies
+      - name: Remove invalid Expo dependency
         working-directory: source/LunarProxy-main/app
         run: |
-          npx expo install --fix
+          npm pkg delete dependencies.expo-build-properties
+          npm pkg delete devDependencies.expo-build-properties
 
-
-      # ==========================================
-      # 12. Reinstall dependencies
-      # ==========================================
-      - name: Reinstall dependencies
+      - name: Install dependencies
         working-directory: source/LunarProxy-main/app
         run: |
           npm install --legacy-peer-deps
 
-
-      # ==========================================
-      # 13. Create missing icon assets
-      # ==========================================
-      - name: Create missing app icons
+      - name: Install Expo packages
         working-directory: source/LunarProxy-main/app
         run: |
-          mkdir -p assets
+          npx expo install \
+            expo-font \
+            expo-localization \
+            expo-notifications \
+            expo-secure-store \
+            expo-splash-screen \
+            expo-tracking-transparency \
+            expo-web-browser \
+            react-native-worklets
 
-          sudo apt-get update
-          sudo apt-get install -y imagemagick
-
-          convert -size 512x512 xc:"#232323" assets/icon.png
-          convert -size 512x512 xc:"#232323" assets/adaptive-icon.png
-
-          ls -lh assets/icon.png
-          ls -lh assets/adaptive-icon.png
-
-
-      # ==========================================
-      # 14. Expo Doctor
-      # ==========================================
-      - name: Expo Doctor
-        working-directory: source/LunarProxy-main/app
-        continue-on-error: true
-        run: |
-          npx expo-doctor
-
-
-      # ==========================================
-      # 15. Check Expo
-      # ==========================================
-      - name: Check Expo
+      - name: Fix Expo dependencies
         working-directory: source/LunarProxy-main/app
         run: |
-          npx expo --version
-
-          npm list \
-            expo \
-            react \
-            react-native \
-            react-native-reanimated \
-            react-native-worklets \
-            --depth=0 || true
-
-
-      # ==========================================
-      # 16. Expo Prebuild
-      # ==========================================
-      - name: Create Android project
-        working-directory: source/LunarProxy-main/app
-        run: |
-          npx expo prebuild \
-            --platform android \
-            --clean
-
-
-      # ==========================================
-      # 17. Prepare Gradle
-      # ==========================================
-      - name: Prepare Gradle
-        working-directory: source/LunarProxy-main/app/android
-        run: |
-          chmod +x gradlew
-
-
-      # ==========================================
-      # 18. Build APK
-      # ==========================================
-      - name: Build APK
-        working-directory: source/LunarProxy-main/app/android
-        run: |
-          ./gradlew assembleDebug \
-            --stacktrace \
-            --console=plain \
-            --no-daemon
-
-
-      # ==========================================
-      # 19. Find APK
-      # ==========================================
-      - name: Find APK
-        run: |
-          echo "========================================"
-          echo "LUNARPROXY APK"
-          echo "========================================"
-
-          find source/LunarProxy-main/app/android \
-            -type f \
-            -name "*.apk" \
-            -print
-
-          echo ""
-          echo "===== APK SIZE ====="
-
-          find source/LunarProxy-main/app/android \
-            -type f \
-            -name "*.apk" \
-            -exec ls -lh {} \;
-
-
-      # ==========================================
-      # 20. Upload APK
-      # ==========================================
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: LunarProxy-debug
-          path: |
-            source/LunarProxy-main/app/android/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          npx expo install --fix
+          npm install --legacy-peer-deps
