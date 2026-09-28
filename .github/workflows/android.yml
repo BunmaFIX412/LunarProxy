@@ -11,110 +11,192 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout repository
+
+      # ==========================================
+      # 1. Checkout
+      # ==========================================
       - name: Checkout
         uses: actions/checkout@v4
 
+
+      # ==========================================
       # 2. Java
+      # ==========================================
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
+
+      # ==========================================
       # 3. Node.js
+      # ==========================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
-          cache-dependency-path: source/LunarProxy-main/app/package.json
 
+
+      # ==========================================
       # 4. Go
+      # ==========================================
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: "1.26.2"
 
-      # 5. Extract ZIP
+
+      # ==========================================
+      # 5. Check ZIP
+      # ==========================================
+      - name: Check ZIP
+        run: |
+          echo "===== ZIP FILE ====="
+          ls -lh LunarProxy-main.zip
+          echo ""
+          echo "===== ZIP CONTENT ====="
+          unzip -l LunarProxy-main.zip | head -100
+
+
+      # ==========================================
+      # 6. Extract LunarProxy
+      # ==========================================
       - name: Extract LunarProxy
         run: |
           mkdir -p source
+
           unzip -o LunarProxy-main.zip -d source
-          echo "===== PROJECT FILES ====="
+
+          echo ""
+          echo "===== EXTRACTED FILES ====="
           find source/LunarProxy-main -maxdepth 3 -type f | sort | head -200
 
-      # 6. Check package.json
-      - name: Show package.json
+
+      # ==========================================
+      # 7. Check app directory
+      # ==========================================
+      - name: Check app
         working-directory: source/LunarProxy-main/app
         run: |
-          echo "===== package.json ====="
+          echo "===== APP DIRECTORY ====="
+          pwd
+          echo ""
+          ls -la
+          echo ""
+          echo "===== PACKAGE.JSON ====="
           cat package.json
 
-      # 7. Fix Expo SDK 54 dependencies
+
+      # ==========================================
+      # 8. Fix Expo SDK 54
+      # ==========================================
       - name: Fix Expo SDK 54 dependencies
         working-directory: source/LunarProxy-main/app
         run: |
+
           npm pkg set dependencies.expo="~54.0.0"
+
           npm pkg set dependencies.react="19.1.0"
+
           npm pkg set dependencies.react-native="0.81.4"
 
           npm pkg set dependencies.expo-build-properties="~1.0.10"
-          npm pkg set dependencies.expo-font="~14.0.12"
-          npm pkg set dependencies.expo-localization="~17.0.9"
-          npm pkg set dependencies.expo-secure-store="~15.0.8"
-          npm pkg set dependencies.expo-splash-screen="~31.0.10"
 
-          echo "===== FIXED package.json ====="
+          echo ""
+          echo "===== UPDATED PACKAGE.JSON ====="
           cat package.json
 
-      # 8. Install npm dependencies
+
+      # ==========================================
+      # 9. Install npm dependencies
+      # ==========================================
       - name: Install npm dependencies
         working-directory: source/LunarProxy-main/app
         run: |
           npm install --legacy-peer-deps
 
-      # 9. Expo version
+
+      # ==========================================
+      # 10. Check Expo
+      # ==========================================
       - name: Check Expo
         working-directory: source/LunarProxy-main/app
         run: |
           npx expo --version
 
-      # 10. Expo doctor
+
+      # ==========================================
+      # 11. Expo Doctor
+      # ==========================================
       - name: Expo Doctor
         working-directory: source/LunarProxy-main/app
         continue-on-error: true
         run: |
           npx expo-doctor
 
-      # 11. Generate Android project
+
+      # ==========================================
+      # 12. Create Android project
+      # ==========================================
       - name: Create Android project
         working-directory: source/LunarProxy-main/app
         run: |
           npx expo prebuild --platform android --clean
 
-      # 12. Make Gradle executable
+
+      # ==========================================
+      # 13. Prepare Gradle
+      # ==========================================
       - name: Prepare Gradle
         working-directory: source/LunarProxy-main/app/android
         run: |
           chmod +x gradlew
 
-      # 13. Build Debug APK
+
+      # ==========================================
+      # 14. Build APK
+      # ==========================================
       - name: Build APK
         working-directory: source/LunarProxy-main/app/android
         run: |
-          ./gradlew assembleDebug --stacktrace --no-daemon
+          ./gradlew assembleDebug \
+            --stacktrace \
+            --no-daemon
 
-      # 14. Find APK
+
+      # ==========================================
+      # 15. Find APK
+      # ==========================================
       - name: Find APK
         run: |
-          echo "===== APK FILES ====="
-          find source/LunarProxy-main/app/android -type f -name "*.apk" -print
+          echo "================================"
+          echo "APK FILES"
+          echo "================================"
 
-      # 15. Upload APK
+          find source/LunarProxy-main/app/android \
+            -type f \
+            -name "*.apk" \
+            -print
+
+          echo ""
+          echo "================================"
+          echo "APK SIZE"
+          echo "================================"
+
+          find source/LunarProxy-main/app/android \
+            -type f \
+            -name "*.apk" \
+            -exec ls -lh {} \;
+
+
+      # ==========================================
+      # 16. Upload APK
+      # ==========================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: LunarProxy-debug
-          path: source/LunarProxy-main/app/android/app/build/outputs/apk/debug/*.apk
+          path: |
+            source/LunarProxy-main/app/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
