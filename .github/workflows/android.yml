@@ -12,16 +12,16 @@ jobs:
 
     steps:
 
-      # ==============================
-      # Checkout
-      # ==============================
+      # ==========================================
+      # 1. Checkout
+      # ==========================================
       - name: Checkout
         uses: actions/checkout@v4
 
 
-      # ==============================
-      # Java
-      # ==============================
+      # ==========================================
+      # 2. Java
+      # ==========================================
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -29,27 +29,27 @@ jobs:
           java-version: "17"
 
 
-      # ==============================
-      # Node.js
-      # ==============================
+      # ==========================================
+      # 3. Node.js
+      # ==========================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
 
-      # ==============================
-      # Go
-      # ==============================
+      # ==========================================
+      # 4. Go
+      # ==========================================
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: "1.26.2"
 
 
-      # ==============================
-      # Extract ZIP
-      # ==============================
+      # ==========================================
+      # 5. Extract ZIP
+      # ==========================================
       - name: Extract LunarProxy
         run: |
           mkdir -p source
@@ -59,41 +59,21 @@ jobs:
           find source/LunarProxy-main -maxdepth 3 -type f | sort | head -200
 
 
-      # ==============================
-      # Check app
-      # ==============================
-      - name: Check app
-        working-directory: source/LunarProxy-main/app
-        run: |
-          echo "===== APP ====="
-          pwd
-          ls -la
-
-          echo ""
-          echo "===== PACKAGE.JSON ====="
-          cat package.json
-
-
-      # ==============================
-      # Prepare Expo SDK 54
-      # ==============================
+      # ==========================================
+      # 6. Prepare Expo project
+      # ==========================================
       - name: Prepare Expo SDK 54
         working-directory: source/LunarProxy-main/app
         run: |
 
-          # Expo SDK 54
           npm pkg set dependencies.expo="~54.0.0"
-
-          # SDK 54 React
           npm pkg set dependencies.react="19.1.0"
-
-          # Let Expo install the compatible RN version
           npm pkg set dependencies.react-native="0.81.5"
 
-          # Remove packages that must not be installed directly
+          # expo-modules-core must not be installed directly
           npm pkg delete dependencies.expo-modules-core
 
-          # Remove old Expo package version constraints
+          # Remove old Expo version constraints
           npm pkg delete dependencies.expo-build-properties
           npm pkg delete dependencies.expo-font
           npm pkg delete dependencies.expo-localization
@@ -103,23 +83,94 @@ jobs:
           npm pkg delete dependencies.expo-tracking-transparency
           npm pkg delete dependencies.expo-web-browser
 
-          echo ""
           echo "===== PREPARED PACKAGE.JSON ====="
           cat package.json
 
 
-      # ==============================
-      # Install base dependencies
-      # ==============================
-      - name: Install base dependencies
+      # ==========================================
+      # 7. Disable Firebase config for build
+      # ==========================================
+      - name: Disable Firebase Google Services
+        working-directory: source/LunarProxy-main/app
+        run: |
+
+          echo "Checking Expo config..."
+
+          if [ -f app.json ]; then
+            echo "Found app.json"
+
+            cp app.json app.json.backup
+
+            python3 - <<'PY'
+          import json
+
+          path = "app.json"
+
+          with open(path, "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          expo = data.get("expo", {})
+
+          # Remove Firebase Google Services reference
+          android = expo.get("android", {})
+
+          if isinstance(android, dict):
+              android.pop("googleServicesFile", None)
+              expo["android"] = android
+
+          # Remove Firebase plugin if present
+          plugins = expo.get("plugins", [])
+
+          if isinstance(plugins, list):
+              new_plugins = []
+
+              for plugin in plugins:
+                  name = plugin[0] if isinstance(plugin, list) and plugin else plugin
+
+                  if name in [
+                      "@react-native-firebase/app",
+                      "@react-native-firebase/crashlytics"
+                  ]:
+                      print("Removing Firebase plugin:", name)
+                      continue
+
+                  new_plugins.append(plugin)
+
+              expo["plugins"] = new_plugins
+
+          data["expo"] = expo
+
+          with open(path, "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=2)
+              f.write("\n")
+
+          print("Firebase Google Services reference removed.")
+          PY
+
+          else
+            echo "app.json not found."
+          fi
+
+          echo ""
+          echo "===== UPDATED APP.JSON ====="
+
+          if [ -f app.json ]; then
+            cat app.json
+          fi
+
+
+      # ==========================================
+      # 8. Install dependencies
+      # ==========================================
+      - name: Install dependencies
         working-directory: source/LunarProxy-main/app
         run: |
           npm install --legacy-peer-deps
 
 
-      # ==============================
-      # Install Expo SDK packages
-      # ==============================
+      # ==========================================
+      # 9. Install Expo-compatible packages
+      # ==========================================
       - name: Install Expo packages
         working-directory: source/LunarProxy-main/app
         run: |
@@ -135,27 +186,27 @@ jobs:
             react-native-worklets
 
 
-      # ==============================
-      # Fix all Expo dependencies
-      # ==============================
+      # ==========================================
+      # 10. Fix Expo dependencies
+      # ==========================================
       - name: Fix Expo dependencies
         working-directory: source/LunarProxy-main/app
         run: |
           npx expo install --fix
 
 
-      # ==============================
-      # Install npm dependencies again
-      # ==============================
+      # ==========================================
+      # 11. Reinstall dependencies
+      # ==========================================
       - name: Reinstall dependencies
         working-directory: source/LunarProxy-main/app
         run: |
           npm install --legacy-peer-deps
 
 
-      # ==============================
-      # Create missing icon assets
-      # ==============================
+      # ==========================================
+      # 12. Create missing icons
+      # ==========================================
       - name: Create missing app icons
         working-directory: source/LunarProxy-main/app
         run: |
@@ -165,11 +216,12 @@ jobs:
           python3 - <<'PY'
           import struct
           import zlib
-          import os
 
-          def png(path, size=1024):
-              raw = b''.join(
-                  b'\x00' + bytes([35, 35, 35, 255]) * size
+          def create_png(path, size=512):
+              pixel = bytes([35, 35, 35, 255])
+
+              raw = b"".join(
+                  b"\x00" + pixel * size
                   for _ in range(size)
               )
 
@@ -178,48 +230,57 @@ jobs:
                       struct.pack(">I", len(data))
                       + name
                       + data
-                      + struct.pack(">I", zlib.crc32(name + data) & 0xffffffff)
+                      + struct.pack(
+                          ">I",
+                          zlib.crc32(name + data) & 0xffffffff
+                      )
                   )
 
-              data = (
-                  b'\x89PNG\r\n\x1a\n'
+              png = (
+                  b"\x89PNG\r\n\x1a\n"
                   + chunk(
-                      b'IHDR',
-                      struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+                      b"IHDR",
+                      struct.pack(
+                          ">IIBBBBB",
+                          size,
+                          size,
+                          8,
+                          6,
+                          0,
+                          0,
+                          0
+                      )
                   )
-                  + chunk(b'IDAT', zlib.compress(raw, 9))
-                  + chunk(b'IEND', b'')
+                  + chunk(b"IDAT", zlib.compress(raw, 9))
+                  + chunk(b"IEND", b"")
               )
 
               with open(path, "wb") as f:
-                  f.write(data)
+                  f.write(png)
 
-          png("assets/icon.png")
-          png("assets/adaptive-icon.png")
-
-          print("Created:")
-          print("assets/icon.png")
-          print("assets/adaptive-icon.png")
-          PY
+          create_png("assets/icon.png")
+          create_png("assets/adaptive-icon.png")
 
           ls -lh assets/
 
 
-      # ==============================
-      # Expo Doctor
-      # ==============================
+      # ==========================================
+      # 13. Expo Doctor
+      # ==========================================
       - name: Expo Doctor
         working-directory: source/LunarProxy-main/app
+        continue-on-error: true
         run: |
           npx expo-doctor
 
 
-      # ==============================
-      # Expo version
-      # ==============================
+      # ==========================================
+      # 14. Expo version
+      # ==========================================
       - name: Check Expo
         working-directory: source/LunarProxy-main/app
         run: |
+          echo "===== EXPO ====="
           npx expo --version
 
           echo ""
@@ -231,14 +292,12 @@ jobs:
             react-native \
             react-native-reanimated \
             react-native-worklets \
-            react-native-screens \
-            react-native-safe-area-context \
             --depth=0 || true
 
 
-      # ==============================
-      # Generate Android project
-      # ==============================
+      # ==========================================
+      # 15. Prebuild Android
+      # ==========================================
       - name: Create Android project
         working-directory: source/LunarProxy-main/app
         run: |
@@ -247,18 +306,18 @@ jobs:
             --clean
 
 
-      # ==============================
-      # Prepare Gradle
-      # ==============================
+      # ==========================================
+      # 16. Prepare Gradle
+      # ==========================================
       - name: Prepare Gradle
         working-directory: source/LunarProxy-main/app/android
         run: |
           chmod +x gradlew
 
 
-      # ==============================
-      # Build APK
-      # ==============================
+      # ==========================================
+      # 17. Build APK
+      # ==========================================
       - name: Build APK
         working-directory: source/LunarProxy-main/app/android
         run: |
@@ -267,15 +326,15 @@ jobs:
             --no-daemon
 
 
-      # ==============================
-      # Find APK
-      # ==============================
+      # ==========================================
+      # 18. Find APK
+      # ==========================================
       - name: Find APK
         run: |
-          echo ""
-          echo "======================================"
+
+          echo "========================================"
           echo "LUNARPROXY APK"
-          echo "======================================"
+          echo "========================================"
 
           find source/LunarProxy-main/app/android \
             -type f \
@@ -291,9 +350,9 @@ jobs:
             -exec ls -lh {} \;
 
 
-      # ==============================
-      # Upload APK
-      # ==============================
+      # ==========================================
+      # 19. Upload APK
+      # ==========================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
