@@ -11,57 +11,110 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Checkout repository
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 2. Java
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
+      # 3. Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: source/LunarProxy-main/app/package.json
 
+      # 4. Go
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26.2'
+          go-version: "1.26.2"
 
+      # 5. Extract ZIP
       - name: Extract LunarProxy
         run: |
           mkdir -p source
           unzip -o LunarProxy-main.zip -d source
-          find source -maxdepth 3 -type f | head -100
+          echo "===== PROJECT FILES ====="
+          find source/LunarProxy-main -maxdepth 3 -type f | sort | head -200
 
-      - name: Fix Expo dependency
+      # 6. Check package.json
+      - name: Show package.json
         working-directory: source/LunarProxy-main/app
         run: |
-          npm pkg delete dependencies.expo-build-properties
-          npm install expo-build-properties@latest --save
+          echo "===== package.json ====="
+          cat package.json
 
+      # 7. Fix Expo SDK 54 dependencies
+      - name: Fix Expo SDK 54 dependencies
+        working-directory: source/LunarProxy-main/app
+        run: |
+          npm pkg set dependencies.expo="~54.0.0"
+          npm pkg set dependencies.react="19.1.0"
+          npm pkg set dependencies.react-native="0.81.4"
+
+          npm pkg set dependencies.expo-build-properties="~1.0.10"
+          npm pkg set dependencies.expo-font="~14.0.12"
+          npm pkg set dependencies.expo-localization="~17.0.9"
+          npm pkg set dependencies.expo-secure-store="~15.0.8"
+          npm pkg set dependencies.expo-splash-screen="~31.0.10"
+
+          echo "===== FIXED package.json ====="
+          cat package.json
+
+      # 8. Install npm dependencies
       - name: Install npm dependencies
         working-directory: source/LunarProxy-main/app
-        run: npm install
+        run: |
+          npm install --legacy-peer-deps
 
+      # 9. Expo version
       - name: Check Expo
         working-directory: source/LunarProxy-main/app
-        run: npx expo --version
+        run: |
+          npx expo --version
 
+      # 10. Expo doctor
+      - name: Expo Doctor
+        working-directory: source/LunarProxy-main/app
+        continue-on-error: true
+        run: |
+          npx expo-doctor
+
+      # 11. Generate Android project
       - name: Create Android project
         working-directory: source/LunarProxy-main/app
-        run: npx expo prebuild --platform android
+        run: |
+          npx expo prebuild --platform android --clean
 
-      - name: Build APK
+      # 12. Make Gradle executable
+      - name: Prepare Gradle
         working-directory: source/LunarProxy-main/app/android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
 
+      # 13. Build Debug APK
+      - name: Build APK
+        working-directory: source/LunarProxy-main/app/android
+        run: |
+          ./gradlew assembleDebug --stacktrace --no-daemon
+
+      # 14. Find APK
+      - name: Find APK
+        run: |
+          echo "===== APK FILES ====="
+          find source/LunarProxy-main/app/android -type f -name "*.apk" -print
+
+      # 15. Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: LunarProxy-debug
           path: source/LunarProxy-main/app/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
