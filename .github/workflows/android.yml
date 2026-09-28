@@ -12,6 +12,7 @@ jobs:
 
     env:
       NODE_ENV: production
+      CI: true
 
     steps:
       - name: Checkout repository
@@ -31,6 +32,21 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android SDK components
+        run: |
+          echo "===== ANDROID SDK ====="
+          sdkmanager --version
+
+          yes | sdkmanager --licenses > /dev/null || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+          echo "===== INSTALLED SDK ====="
+          sdkmanager --list_installed | head -100
+
       - name: Install system packages
         run: |
           sudo apt-get update
@@ -39,16 +55,18 @@ jobs:
       - name: Extract LunarProxy
         run: |
           mkdir -p source
+
           unzip -o LunarProxy-main.zip -d source
 
-          echo "===== SOURCE ====="
-          find source -maxdepth 3 -type f | head -100
+          echo "===== SOURCE DIRECTORY ====="
+          find source -maxdepth 3 -type f | head -150
 
-      - name: Check app folder
+      - name: Check project
         working-directory: source/LunarProxy-main/app
         run: |
-          echo "===== APP FILES ====="
+          echo "===== APP DIRECTORY ====="
           ls -la
+
           echo ""
           echo "===== PACKAGE.JSON ====="
           cat package.json
@@ -56,12 +74,16 @@ jobs:
       - name: Prepare Expo dependencies
         working-directory: source/LunarProxy-main/app
         run: |
-          npm install
+          echo "===== INITIAL NPM INSTALL ====="
+          npm install --legacy-peer-deps
 
-          echo "Removing problematic direct Expo module..."
+          echo ""
+          echo "===== REMOVE DIRECT EXPO MODULES ====="
           npm pkg delete dependencies.expo-modules-core
 
-          echo "Installing Expo SDK compatible packages..."
+          echo ""
+          echo "===== INSTALL EXPO PACKAGES ====="
+
           npx expo install \
             expo-build-properties \
             expo-font \
@@ -73,40 +95,64 @@ jobs:
             expo-web-browser \
             react-native-worklets
 
-          echo "Fixing Expo dependencies..."
+          echo ""
+          echo "===== FIX EXPO DEPENDENCIES ====="
+
           npx expo install --fix
 
-          echo "Installing required React Native version..."
+          echo ""
+          echo "===== INSTALL REACT NATIVE ====="
+
           npx expo install react-native@0.81.5
 
-          echo "Installing Worklets..."
+          echo ""
+          echo "===== INSTALL WORKLETS ====="
+
           npx expo install react-native-worklets
+
+          echo ""
+          echo "===== FINAL PACKAGE.JSON ====="
+          cat package.json
 
       - name: Disable Firebase Google Services
         working-directory: source/LunarProxy-main/app
         run: |
           if [ -f app.json ]; then
+
+            echo "===== BACKUP APP.JSON ====="
             cp app.json app.json.backup
 
             node -e '
             const fs = require("fs");
-            const p = "app.json";
-            const d = JSON.parse(fs.readFileSync(p, "utf8"));
 
-            const expo =
-              d.expo &&
-              typeof d.expo === "object" &&
-              !Array.isArray(d.expo)
-                ? d.expo
-                : d;
+            const path = "app.json";
+            const data = JSON.parse(fs.readFileSync(path, "utf8"));
 
-            if (expo.android) {
+            let expo;
+
+            if (
+              data.expo &&
+              typeof data.expo === "object" &&
+              !Array.isArray(data.expo)
+            ) {
+              expo = data.expo;
+            } else {
+              expo = data;
+            }
+
+            if (
+              expo.android &&
+              typeof expo.android === "object"
+            ) {
               delete expo.android.googleServicesFile;
             }
 
             if (Array.isArray(expo.plugins)) {
               expo.plugins = expo.plugins.filter((plugin) => {
-                const name = Array.isArray(plugin) ? plugin[0] : plugin;
+                const name = Array.isArray(plugin)
+                  ? plugin[0]
+                  : plugin;
+
                 return (
                   name !== "@react-native-firebase/app" &&
                   name !== "@react-native-firebase/crashlytics"
@@ -114,12 +160,20 @@ jobs:
               });
             }
 
-            const output = { expo };
-            fs.writeFileSync(p, JSON.stringify(output, null, 2) + "\n");
+            fs.writeFileSync(
+              path,
+              JSON.stringify({ expo }, null, 2) + "\n"
+            );
+
+            console.log("Expo configuration updated.");
             '
 
-            echo "===== APP.JSON AFTER FIREBASE FIX ====="
+            echo ""
+            echo "===== FINAL APP.JSON ====="
             cat app.json
+
+          else
+            echo "app.json not found."
           fi
 
       - name: Create missing app icons
@@ -128,58 +182,105 @@ jobs:
           mkdir -p assets
 
           if [ ! -f assets/icon.png ]; then
-            convert -size 512x512 xc:"#232323" assets/icon.png
+            echo "Creating icon.png"
+            convert \
+              -size 512x512 \
+              xc:"#232323" \
+              assets/icon.png
           fi
 
           if [ ! -f assets/adaptive-icon.png ]; then
-            convert -size 512x512 xc:"#232323" assets/adaptive-icon.png
+            echo "Creating adaptive-icon.png"
+            convert \
+              -size 512x512 \
+              xc:"#232323" \
+              assets/adaptive-icon.png
           fi
 
-          echo "===== ICONS ====="
+          echo ""
+          echo "===== ICON FILES ====="
           ls -lh assets/
 
       - name: Expo Doctor
         working-directory: source/LunarProxy-main/app
         run: |
+          echo "===== EXPO DOCTOR ====="
           npx expo-doctor || true
 
       - name: Expo Config Check
         working-directory: source/LunarProxy-main/app
         run: |
+          echo "===== EXPO CONFIG ====="
           npx expo config --type public || true
 
       - name: Expo Prebuild
         working-directory: source/LunarProxy-main/app
         run: |
-          npx expo prebuild --platform android --clean
+          echo "===== EXPO PREBUILD ====="
+
+          npx expo prebuild \
+            --platform android \
+            --clean
+
+      - name: Check Android project
+        working-directory: source/LunarProxy-main/app/android
+        run: |
+          echo "===== ANDROID PROJECT ====="
+          ls -la
+
+          echo ""
+          echo "===== GRADLE VERSION ====="
+          ./gradlew --version
 
       - name: Build Debug APK
         working-directory: source/LunarProxy-main/app/android
         run: |
           chmod +x gradlew
 
+          echo "========================================"
+          echo "        BUILDING LUNARPROXY APK"
+          echo "========================================"
+
           ./gradlew assembleDebug \
             --stacktrace \
             --no-daemon \
+            --warning-mode all \
             2>&1 | tee gradle-build.log
 
           status=${PIPESTATUS[0]}
 
           echo ""
           echo "========================================"
-          echo "       GRADLE ERROR SUMMARY"
+          echo "        GRADLE ERROR SUMMARY"
           echo "========================================"
 
-          grep -n -A20 -B5 \
-            -E "FAILURE:|What went wrong:|Caused by:|Execution failed for task|A problem occurred" \
+          grep -n \
+            -A25 \
+            -B8 \
+            -E \
+            "FAILURE:|What went wrong:|Caused by:|Execution failed for task|A problem occurred" \
             gradle-build.log || true
 
-          exit $status
+          echo ""
+          echo "========================================"
+          echo "        BUILD RESULT"
+          echo "========================================"
+
+          if [ "$status" -eq 0 ]; then
+            echo "BUILD SUCCESS"
+          else
+            echo "BUILD FAILED"
+          fi
+
+          exit "$status"
 
       - name: Find APK
         if: success()
         run: |
-          echo "===== APK FILES ====="
+          echo "========================================"
+          echo "              APK FILES"
+          echo "========================================"
+
           find source/LunarProxy-main/app/android \
             -type f \
             -name "*.apk" \
